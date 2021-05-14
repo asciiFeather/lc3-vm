@@ -1,0 +1,3 @@
+Memory - 128kb (65,536 memory locations)
+Registers - 10 (each is 16 bits)
+Opcodes - 16
