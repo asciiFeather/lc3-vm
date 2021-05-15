@@ -67,22 +67,30 @@ int main(int argc, const char* argv[]){
     /* load arguments to load programs. */
     if (argc < 2)
     {
-    /* show usage string */
-    printf("lc3 [image-file1] ...\n");
-    exit(2);
+        /* show usage string */
+        printf("lc3 [image-file1] ...\n");
+        exit(2);
     }
 
     for (int j = 1; j < argc; ++j)
     {
-    if (!read_image(argv[j]))
-    {
-        printf("failed to load image: %s\n", argv[j]);
-        exit(1);
-    }
+        if (!read_image(argv[j]))
+        {
+            printf("failed to load image: %s\n", argv[j]);
+            exit(1);
+        }
     }
 
-    
-
+    // Setup. 
+	#ifdef _WIN32
+	
+	
+	
+	#endif
+	
+	#ifdef __unix__
+	
+	#endif
 
     return 0;
 }
