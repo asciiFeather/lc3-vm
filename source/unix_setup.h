@@ -1,3 +1,4 @@
+#pragma once
 #ifndef UNIX_SETUP_H
 #define UNIX_SETUP_H
 

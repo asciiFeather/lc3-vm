@@ -1,3 +1,4 @@
+#pragma once
 #ifndef WIN_SETUP_H
 #define WIN_SETUP_H
 
