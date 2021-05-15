@@ -1,20 +1,5 @@
 #include <iostream>
 
-#ifdef __unix__
-#include <unistd.h>
-#include <fcntl.h>
-
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/termios.h>
-#include <sys/mman.h>
-#endif
-
-#ifdef _WIN32
-#include <Windows.h>
-#include <conio.h>  // _kbhit
-#endif
-
 /* memory. */
 uint16_t memory[UINT16_MAX];
 
@@ -63,6 +48,37 @@ enum
     FL_NEG = 1 << 2, /* N */
 };
 
+void read_image_file(FILE* file)
+{
+    /* the origin tells us where in memory to place the image */
+    uint16_t origin;
+    fread(&origin, sizeof(origin), 1, file);
+    origin = swap16(origin);
+
+    /* we know the maximum file size so we only need one fread */
+    uint16_t max_read = UINT16_MAX - origin;
+    uint16_t* p = memory + origin;
+    size_t read = fread(p, sizeof(uint16_t), max_read, file);
+
+    /* swap to little endian */
+    while (read-- > 0)
+    {
+        *p = swap16(*p);
+        ++p;
+    }
+}
+
+int read_image(const char* image_path)
+{
+    FILE* file = fopen(image_path, "rb");
+    if (!file) { return 0; };
+    read_image_file(file);
+    fclose(file);
+    return 1;
+}
+
+
+
 int main(int argc, const char* argv[]){
     /* load arguments to load programs. */
     if (argc < 2)
@@ -82,15 +98,21 @@ int main(int argc, const char* argv[]){
     }
 
     // Setup. 
-	#ifdef _WIN32
+#ifdef _WIN32
+	#include "win_setup.h"
 	
+	signal(SIGINT, Windows::handle_interrupt);
+	disable_input_buffering();
+#endif // _WIN32
 	
+#ifdef __unix__
+	#include "unix_setup.h"
 	
-	#endif
+	signal(SIGINT, Unix::handle_interrupt);
+	disable_input_buffering();
+#endif // __unix__
+
 	
-	#ifdef __unix__
-	
-	#endif
 
     return 0;
 }
