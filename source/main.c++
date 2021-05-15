@@ -1,5 +1,20 @@
 #include <iostream>
 
+#ifdef __unix__
+#include <unistd.h>
+#include <fcntl.h>
+
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/termios.h>
+#include <sys/mman.h>
+#endif
+
+#ifdef _WIN32
+#include <Windows.h>
+#include <conio.h>  // _kbhit
+#endif
+
 /* memory. */
 uint16_t memory[UINT16_MAX];
 
