@@ -77,6 +77,39 @@ int read_image(const char* image_path)
     return 1;
 }
 
+// Extend the sign if it doesnt match 16 bits.
+// For positive (+) integers fill it with 0 to the left (>>).
+// For negative (-) integers fill it with 1 to the left (>>).
+
+// Like:
+// 1010 Becomes 0000 0000 0000 1010
+uint16_t sign_extend(uint16_t x, int bit_count)
+{
+    if ((x >> (bit_count - 1)) & 1) {
+        x |= (0xFFFF << bit_count);
+    }
+    return x;
+}
+
+// Update flags.
+// If it is a positive one fill in 0s
+// Else if it is a negative one fill in 1s.
+void update_flags(uint16_t r)
+{
+    if (reg[r] == 0)
+    {
+        reg[R_COND] = FL_ZRO;
+    }
+    else if (reg[r] >> 15) /* Place it
+    at the left-most bit 2nd to the last (15).*/
+    {
+        reg[R_COND] = FL_NEG;
+    }
+    else
+    {
+        reg[R_COND] = FL_POS;
+    }
+}
 
 
 int main(int argc, const char* argv[]){
