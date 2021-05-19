@@ -1,23 +1,9 @@
 #include <iostream>
+#include "registers.h"
 
 /* memory. */
 uint16_t memory[UINT16_MAX];
-
-/* registers */
-enum
-{
-    R_R0 = 0,
-    R_R1,
-    R_R2,
-    R_R3,
-    R_R4,
-    R_R5,
-    R_R6,
-    R_R7,
-    R_PC, /* program counter */
-    R_COND,
-    R_COUNT
-}; uint16_t reg[R_COUNT];
+uint16_t reg[registers.R_COUNT]
 
 /* opcodes. */
 enum
@@ -144,70 +130,6 @@ int main(int argc, const char* argv[]){
 	signal(SIGINT, Unix::handle_interrupt);
 	disable_input_buffering();
 #endif // __unix__
-
-    /* set the PC to starting position */
-    /* 0x3000 is the default */
-    enum { PC_START = 0x3000 };
-    reg[R_PC] = PC_START;
-
-    int running = 1;
-    while (running)
-    {
-        /* FETCH */
-        uint16_t instr = mem_read(reg[R_PC]++);
-        uint16_t op = instr >> 12;
-
-        switch (op)
-        {
-            case OP_ADD:
-                
-                break;
-            case OP_AND:
-                
-                break;
-            case OP_NOT:
-                
-                break;
-            case OP_BR:
-                
-                break;
-            case OP_JMP:
-                
-                break;
-            case OP_JSR:
-                
-                break;
-            case OP_LD:
-                
-                break;
-            case OP_LDI:
-                
-                break;
-            case OP_LDR:
-                
-                break;
-            case OP_LEA:
-                
-                break;
-            case OP_ST:
-                
-                break;
-            case OP_STI:
-                
-                break;
-            case OP_STR:
-                
-                break;
-            case OP_TRAP:
-                
-                break;
-            case OP_RES:
-            case OP_RTI:
-            default:
-                // TODO: BAD_OPCODE
-                break;
-        }
-    }
 
 	
 
