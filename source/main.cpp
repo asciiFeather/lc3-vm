@@ -1,9 +1,25 @@
 #include <iostream>
 #include "registers.h"
 
+/* registers */
+enum 
+{
+    R_R0 = 0,
+    R_R1,
+    R_R2,
+    R_R3,
+    R_R4,
+    R_R5,
+    R_R6,
+    R_R7,
+    R_PC, /* program counter */
+    R_COND,
+    R_COUNT
+};
+
 /* memory. */
 uint16_t memory[UINT16_MAX];
-uint16_t reg[registers.R_COUNT]
+uint16_t reg[R_COUNT]
 
 /* opcodes. */
 enum
@@ -130,7 +146,68 @@ int main(int argc, const char* argv[]){
 	signal(SIGINT, Unix::handle_interrupt);
 	disable_input_buffering();
 #endif // __unix__
-
+	
+	// set the PC to starting position/address. 
+	// default = 0x3000
+	enum { PC_START = 0x3000 };
+	reg[R_PC] = PC_START
+	
+	
+	// Main loop.
+	// Switch statements for the different operations.
+	int running = 1; // 1 is true.
+	while (running) {
+		
+		/* fetch. */
+		uint16_t instr = mem_read(reg[R_PC]++); // Read each instruction from memory.
+		uint16_t op = instr >> 12;
+		
+		switch (op)
+		{
+			case OP_ADD:
+				{
+					// destination register. (DR)
+					uint16_t r0 = (instr >> 9) & 0x7;
+					// first operand. (SR1)
+					
+				}
+				break;
+			case OP_AND:
+				break;
+			case OP_NOT:
+				break;
+			case OP_BR:
+				break;
+			case OP_JMP:
+				break;
+			case OP_JSR:
+				break;
+			case OP_LD:
+				break;
+			case OP_LDI:
+				break;
+			case OP_LDR:
+				break;
+			case OP_LEA:
+				break;
+			case OP_ST:
+				break;
+			case OP_STI:
+				break;
+			case OP_STR: 
+				break;
+			case OP_TRAP:
+				break;
+			case OP_RES:
+			case OP_RTI:
+			default:
+				// Insert "BAD OPCODE" operation here.
+				break;
+		}
+		
+		
+	}
+	
 	
 
     return 0;

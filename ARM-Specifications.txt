@@ -1,2 +1,0 @@
-Registers - 7 (Never banked R0-R7) 
-Memory - 
