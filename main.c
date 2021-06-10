@@ -6,14 +6,19 @@ Process:
     4.) Define trap routines.
 
 Compile with `cl /EHsc main.c` or `gcc main.c`
+
+How do programs get loaded?
+    The origin is first read, from there the rest of the data will be read and executed.
 */
 #include <stdlib.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include <signal.h>
 #include <Windows.h>
 #include <conio.h>
 
 HANDLE hStdin = INVALID_HANDLE_VALUE;
+
 
 /* There are 65536 locations in memory each of which stores a 16 bit value. */
 uint16_t memory[UINT16_MAX];
@@ -25,6 +30,7 @@ Store the registers in an enum then implement them in an array.
         Program counter (R_PC): address of next instruction to execute.
         Condition flags (R_COND): information about prev calculation.
 */
+// in most cases, r0 is the DR.
 enum 
 {
     R_R0 = 0,
@@ -40,12 +46,12 @@ enum
     R_COUNT
 };
 
-uint16_t registers[R_COUNT]
+uint16_t registers[R_COUNT];
 
 /* Instruction set 
 Each instruction is 16 bits long, with the left 4 bits storing the opcode, the rest are used for parameters.
 Instructions accept a parameter and an opcode. Opcode represents a task the CPU knows how to perform.*/
-enum 
+enum
 {
     OP_BR = 0, // branch
     OP_ADD,
@@ -73,6 +79,20 @@ enum
     FL_NEG = 1 << 2
 };
 
+// Enum for trap routines/codes, similar to opcodes, these routines act as functions for a specific task.
+// Similar to OS system calls
+
+// When a trap code is called a C function will be called. When complete, return to the instructions.
+enum 
+{
+    TRAP_GETC = 0x20, /* get character from keyboard. */
+    TRAP_OUT = 0x21, /* output a character. */
+    TRAP_PUTS = 0x22, /* output string */
+    TRAP_IN = 0x23, /* get character from keyboard, echoed in the terminal. */
+    TRAP_PUTSP = 0x24, /* output a byte string */
+    TRAP_HALT = 0x25 /* hlt */
+};
+
 // Extend the sign to reach 16 bits.
 // If positive fill it in with 0s, if negative fill it in with 1s.
 uint16_t signExtend(uint16_t x, int bitCount)
@@ -83,21 +103,36 @@ uint16_t signExtend(uint16_t x, int bitCount)
     return x;
 }
 
+void readImageFile(FILE* f)
+{
+    // origin: where in memory to place the image.
+    uint16_t origin;
+    fread(&origin, sizeof(origin), 1, f);
+    origin = swap16(origin);
+
+    // maximum file size it can use.
+    uint16_t maxRead = UINT16_MAX - origin;
+    uint16_t* p = memory + origin;
+    size_t read = fread(p, sizeof(uint16_t), maxRead, f);
+
+    while
+}
+
 // Update the flags everytime a value is written to a register.
 // Update the condition if its set to a negative, positive or zero.
 void updateFlgs(uint16_t r)
 {
     if (registers[r] == 0)
     {
-        reg[R_COND] = FL_ZRO;
+        registers[R_COND] = FL_ZRO;
     }
     else if (registers[r] >> 15) // if the value is shifted to the left most bit and it is a 1, set the flag to negative.
     {
-        reg[R_COND] = FL_NEG;
+        registers[R_COND] = FL_NEG;
     }
     else 
     {
-        reg[R_COND] = FL_POS;
+        registers[R_COND] = FL_POS;
     }
 }
 
@@ -129,7 +164,7 @@ int main(int argc, char const *argv[])
     {
         // Fetch an instruction from memory to the address of program counter which is now 0x3000.
         // Increment PC
-        uint16_t instr = mem_read(registers[R_PC]++)
+        uint16_t instr = mem_read(registers[R_PC]++);
         uint16_t op = instr >> 12; // grab the opcode through shifting instr to the left 12 times.
 
         // now construct the instruction set.
@@ -149,40 +184,253 @@ int main(int argc, char const *argv[])
                 
                 */
                 {
-                    uint16_t dr = (instr >> 9) & 0x7;
+                    uint16_t r0 = (instr >> 9) & 0x7;
                     // First no. (SR1)
-                    uint16_t r1 = 
-                
+                    // Located at the 6th bit (shift right 6 times n >> 6).
+                    uint16_t r1 = (instr >> 6) & 0x7;
+                    // Check if we are in immediate mode.
+                    // imm_flag is located at the 5th bit (shift right 5 times n >> 5).
+                    uint16_t imm_flag = (instr >> 5) & 0x1;
+                    
+                    if (imm_flag)
+                    {
+                        uint16_t imm5 = signExtend(instr & 0x1F, 5);
+                        registers[r0] = registers[r1] + imm5; // Get the result of sr1 + imm5 and store it in DR.
+                    }
+                    else // go to register mode.
+                    {
+                        // create the sr2 register for the second value.
+                        uint16_t r2 = instr & 0x7;
+                        registers[r0] = registers[r1] + registers[r2]; // Get the result of sr1 + sr2 and store it in DR.
+                    }
+                    
+                    // When an instruction modifies a register, the condition flags must update.
+                    updateFlgs(r0);   
                 }
                 break;
             case OP_AND:
+                {
+                    // Similar to OP_ADD except it uses the and operator.
+                    // r1 & r2
+                    // r1 & imm5
+                    uint16_t r0 = (instr >> 9) & 0x7;
+                    uint16_t r1 = (instr >> 6) & 0x7;
+                    uint16_t imm_flag = (instr >> 5) & 0x1;
+
+                    if (imm_flag)
+                    {
+                        uint16_t imm5 = signExtend(instr & 0x1F, 5);
+                        registers[r0] = registers[r1] & imm5;
+                    }
+                    else 
+                    {
+                        // Register mode.
+                        uint16_t r2 = instr & 0x7;
+                        registers[r0] = registers[r1] & registers[r2];
+                    }
+
+                    updateFlgs(r0);
+                }
                 break;
             case OP_NOT:
+                {
+                    // The bitwise complement of SR are stored in DR.
+                    uint16_t r0 = (instr >> 9) & 0x7;
+                    // source register. 
+                    uint16_t r1 = (instr >> 6) & 0x7;
+                    registers[r0] = ~registers[r1]; 
+                    updateFlgs(r0);
+                }
                 break;
             case OP_BR:
+                {
+                    // Checks if the conditions are true then adds pcOffset with current PC.
+                    uint16_t pcOffset = signExtend(instr & 0x1FF, 9);
+                    uint16_t condFlag = (instr >> 9) & 0x7;
+                    if (condFlag & registers[R_COND])
+                    {
+                        pcOffset += registers[R_PC];
+                    }
+                }
                 break;
             case OP_JMP:
+                {
+                    // handles RET: special case for JMP happens when R1 is 7.
+                    uint16_t r1 = (instr >> 6) & 0x7;
+                    registers[R_PC] = registers[r1]; // program counter gets set to r1.
+                }
                 break;
             case OP_JSR:
+                {
+                    uint16_t longFlag = (instr >> 11) & 1;
+                    registers[R_R7] = registers[R_PC];
+                    if (longFlag)
+                    {
+                        // Similar to immediate mode. long flag mode.
+                        uint16_t longPcOffset = signExtend(instr & 0x7FF, 11);
+                        // Add longPcOffset to the current PC
+                        registers[R_PC] += longPcOffset; 
+                    }
+                    else 
+                    {
+                        uint16_t r1 = (instr >> 6) & 0x7;
+                        registers[R_PC] += registers[r1]; // Jump register's register.
+                    }
+                }
                 break;
             case OP_LD:
+                {
+                    // LD is similar to LDI except used for nearer locations.
+                    uint16_t r0 = (instr >> 9) & 0x7;
+                    uint16_t pcOffset = signExtend(instr & 0x1FF, 9);
+                    // look at the memory location of current PC with the pcOffset.
+                    registers[r0] = mem_read(registers[R_PC] + pcOffset);
+                    updateFlgs(r0); // update flags because r0 (DR) was modified.
+                }
                 break;
             case OP_LDI:
+                // load a value from memory into a register.
+                // Binary layout: 
+                // 1010 (OP_LDI) | DR (dest reg) | PCOffset9 (Embedded value (similar to imm5), an address of where to load from)
+                /*
+                * Process: 
+                * 1.) Sign extend 9 bit value.
+                * 2.) Add it to the current PC.
+                * */
+                // Result gives address to a location in memory.
+                {
+                    uint16_t r0 = (instr >> 9) & 0x7;
+                    // PCOffset9.
+                    uint16_t pcOffset = signExtend(instr & 0x1FF, 9); 
+                    // look at the memory location of the location of current PC + pcOffset.
+                    registers[r0] = mem_read(mem_read(registers[R_PC] + pcOffset));
+
+                    updateFlgs(r0);
+                }
                 break;
             case OP_LDR:
+                {
+                    // Sign extend bits 5:0 (offset6) to 16 bits. Add this value to the contents of the register, baseR. 
+                    // contents are stored at DR.
+
+                    uint16_t r0 = (instr >> 9) & 0x7;
+                    // BaseR
+                    uint16_t r1 = (instr >> 6) & 0x7;
+                    // offset6
+                    uint16_t offset = signExtend(instr & 0x3F, 6);
+                    registers[r0] = mem_read(registers[r1] + offset);
+                    updateFlgs(r0); 
+                }
                 break;
             case OP_LEA:
+                // Sign extend bits 8:0 which is PCoffset9 to 16 bits.
+                // Add this value to the current PC.
+                {
+                    uint16_t r0 = (instr >> 9) & 0x7;
+                    uint16_t pcOffset9 = signExtend(instr & 0x1FF, 9);
+                    registers[r0] = pcOffset9 + registers[R_PC];
+                    updateFlgs(r0);
+                }
                 break;
             case OP_ST:
+                // SR is stored in the mem location which is a sign extend of 8:0 (PCoffset9) to 16 bits.
+                // Add this value to the current PC and store in memory.
+                {
+                    // source register.
+                    uint16_t r0 = (instr >> 9) & 0x7;
+                    uint16_t pcOffset = signExtend(instr & 0x1FF, 9);
+                    mem_write(pcOffset + registers[R_PC], registers[r0]);
+                }
                 break;
             case OP_STI:
+                {
+                    // Similar to ST contents of SR are stored in memory through PCOffset9 which is sign extended to 16 bits.
+                    uint16_t r0 = (instr >> 9) & 0x7;
+                    uint16_t pcOffset = signExtend(instr & 0x1FF, 9);
+                    mem_write(mem_read(registers[R_PC] + pcOffset), registers[0]); // write the address of pcOffset incremented with current PC then store r0 to offset.
+                }
                 break;
             case OP_STR:
+                {
+                    // Contents of SR are stored in the offset6 which gets sign extended to 16 bits
+                    // Write this value + the SR contents to the memory location.
+                    // SR
+                    uint16_t r0 = (instr >> 9) & 0x7;
+                    // BaseR
+                    uint16_t r1 = (instr >> 6) & 0x7;
+                    // offset6
+                    uint16_t offset = signExtend(instr & 0x3F, 6);
+                    mem_write(registers[r1]+offset, registers[r0]);
+                }
                 break;
             case OP_TRAP:
+                switch (instr & 0xFF) 
+                {
+                    case TRAP_GETC:
+                        // Read a character from the keyboard but not echoed.
+                        registers[R_R0] = (uint16_t)getchar(); // read the char from keyboard then store it in R0.
+                        break;
+                    case TRAP_OUT:
+                        // Write a char in R0 to the console.
+                        putc((char)registers[R_R0], stdout); // put R0's char then output it to the console.
+                        fflush(stdout); // clean stdout
+                        break;
+                    case TRAP_PUTS:
+                        // outputs a string.
+                        // store the first character's address in R0 before the trap begins.
+                        // the string starts from the first character's address all the way to the last.
+                        // each character is not stored in a byte but instead a single memory location.
+                        {
+                            /* one character per word. */
+                            // convert each string to chars and output them individually
+                            uint16_t* c = memory + registers[R_R0];
+                            while (*c) 
+                            {
+                                putc((char)*c, stdout); // put each character then output them.
+                                ++c; // get all c.
+                            }
+                            fflush(stdout); // clean up.
+                        }
+                        break;
+                    case TRAP_IN:
+                        // print a prompt.
+                        // read character from keyboard.
+                        // echo character.
+                        // store in R0.
+                        printf(" ");
+                        char c = getchar();
+                        putc(c, stdout);
+                        registers[R_R0] = (uint16_t)c; 
+                        break;
+                    case TRAP_PUTSP:
+                        {
+                            /*
+                            this uses one character per byte.
+                            prints two characters for every address.
+                            */
+                            uint16_t* c = memory + registers[R_R0];
+                            while (*c)
+                            {
+                                char char1 = (*c) & 0xFF; // [7:0]
+                                putc(char1, stdout);
+                                char char2 = (*c) >> 8; // ASCII code to be written to the console.
+                                if (char2) putc(char2, stdout);
+                                ++c; // put together the characters.
+                            }
+                            fflush (stdout);
+                        }
+                        break;
+                    case TRAP_HALT:
+                        puts("Done!");
+                        fflush(stdout);
+                        running = 0;
+                        break;
+                }
                 break;
             case OP_RES: // reserved (unused)
+                abort(); 
             case OP_RTI: // unused as well.
+                abort();
             default:
                 // return an error
                 // BAD_OPCODE
@@ -193,3 +441,4 @@ int main(int argc, char const *argv[])
 
     return 0;
 }
+
