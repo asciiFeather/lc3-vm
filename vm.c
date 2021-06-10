@@ -18,11 +18,6 @@ How do programs get loaded?
 #include <conio.h>
 
 HANDLE hStdin = INVALID_HANDLE_VALUE;
-
-
-/* There are 65536 locations in memory each of which stores a 16 bit value. */
-uint16_t memory[UINT16_MAX];
-
 /* 
 Store the registers in an enum then implement them in an array. 
     Explanation:
@@ -46,7 +41,13 @@ enum
     R_COUNT
 };
 
-uint16_t registers[R_COUNT];
+// Define the condition flags. LC3 has 3 condition flags to indicate the prev calculation. 
+enum 
+{
+    FL_POS = 1 << 0,
+    FL_ZRO = 1 << 1,
+    FL_NEG = 1 << 2
+};
 
 /* Instruction set 
 Each instruction is 16 bits long, with the left 4 bits storing the opcode, the rest are used for parameters.
@@ -71,12 +72,15 @@ enum
     OP_TRAP
 };
 
-// Define the condition flags. LC3 has 3 condition flags to indicate the prev calculation. 
-enum 
+
+/**
+ * Memory mapped registers are not located in the register table but are instead located in memory.
+ * To reach these registers, you must map their location in memory.
+*/
+enum
 {
-    FL_POS = 1 << 0,
-    FL_ZRO = 1 << 1,
-    FL_NEG = 1 << 2
+    MR_KBSR = 0xFE00, // is a key pressed?
+    MR_KBDR = 0xFE02 // what is the key pressed?
 };
 
 // Enum for trap routines/codes, similar to opcodes, these routines act as functions for a specific task.
@@ -93,6 +97,9 @@ enum
     TRAP_HALT = 0x25 /* hlt */
 };
 
+uint16_t memory[UINT16_MAX]; // has 65536 locations. 128kb only
+uint16_t registers[R_COUNT];
+
 // Extend the sign to reach 16 bits.
 // If positive fill it in with 0s, if negative fill it in with 1s.
 uint16_t signExtend(uint16_t x, int bitCount)
@@ -103,19 +110,9 @@ uint16_t signExtend(uint16_t x, int bitCount)
     return x;
 }
 
-void readImageFile(FILE* f)
+uint16_t swap16(uint16_t x)
 {
-    // origin: where in memory to place the image.
-    uint16_t origin;
-    fread(&origin, sizeof(origin), 1, f);
-    origin = swap16(origin);
-
-    // maximum file size it can use.
-    uint16_t maxRead = UINT16_MAX - origin;
-    uint16_t* p = memory + origin;
-    size_t read = fread(p, sizeof(uint16_t), maxRead, f);
-
-    while
+    return (x << 8) | (x >> 8);
 }
 
 // Update the flags everytime a value is written to a register.
@@ -130,12 +127,101 @@ void updateFlgs(uint16_t r)
     {
         registers[R_COND] = FL_NEG;
     }
-    else 
+    else
     {
         registers[R_COND] = FL_POS;
     }
 }
 
+void readImageFile(FILE* f)
+{
+    // origin: where in memory to place the image.
+    uint16_t origin;
+    fread(&origin, sizeof(origin), 1, f);
+    origin = swap16(origin);
+
+    // maximum file size it can use.
+    uint16_t maxRead = UINT16_MAX - origin;
+    uint16_t* p = memory + origin;
+    size_t read = fread(p, sizeof(uint16_t), maxRead, f);
+
+    /** swap to little endian. 
+     * store the most significant byte to the largest memory address, 
+     * store the least-significant to the smallest.**/
+    while (read-- > 0)
+    {
+        // The asterisk (*) turns a pointer into a value, we want the value in this case.
+        *p = swap16(*p); // swap each uint16_t that is loaded to fit in with the little endian computers, most of the modern computers.
+        ++p;
+    }
+}
+
+// Takes a path
+int readImage(const char* imagePath)
+{
+    FILE* file = fopen(imagePath, "rb");
+    if (! file) { return 0; };
+    readImageFile(file);
+    fclose(file);
+    return 1;
+}
+
+
+uint16_t check_key()
+{
+    return WaitForSingleObject(hStdin, 1000) == WAIT_OBJECT_0 && _kbhit();
+}
+
+void mem_write(uint16_t address, uint16_t val)
+{
+    memory[address] = val;
+}
+
+uint16_t mem_read(uint16_t addr)
+{
+    if (addr == MR_KBSR)
+    {
+        if (check_key())
+        {
+            memory[MR_KBSR] = (1<<15); // get the keyboard status
+            memory[MR_KBDR] = getchar(); // get the key
+        }
+        else
+        {
+            memory[MR_KBSR] = 0;
+        }
+    }
+    return memory[addr];
+}
+
+/* Input buffering. */
+#pragma region INPUT_BUFF
+DWORD fdwMode, fdwOldMode;
+
+void disable_input_buffering()
+{
+    hStdin = GetStdHandle(STD_INPUT_HANDLE);
+    GetConsoleMode(hStdin, &fdwOldMode); // save old mode
+    fdwMode = fdwOldMode
+            ^ ENABLE_ECHO_INPUT  /* no input echo */
+            ^ ENABLE_LINE_INPUT; /* return when one or
+                                    more characters are available */
+    SetConsoleMode(hStdin, fdwMode); /* set new mode */
+    FlushConsoleInputBuffer(hStdin); /* clear buffer */
+}
+
+void restore_input_buffering()
+{
+    SetConsoleMode(hStdin, fdwOldMode);
+}
+#pragma endregion
+
+void handle_interrupt(int sgnal)
+{
+    restore_input_buffering();
+    printf("\n");
+    exit(-2);
+}
 
 int main(int argc, char const *argv[])
 {
@@ -148,12 +234,15 @@ int main(int argc, char const *argv[])
 
     for (int j = 1; j < argc; ++j)
     {
-        if (!read_image(argv[j]))
+        if (!readImage(argv[j]))
         {
             printf("Failed to load image: %s\n", argv[j]);
             exit(1);
         }
     }
+
+    signal(SIGINT, handle_interrupt);
+    disable_input_buffering();
 
     // Set the PC to it's start position, 0x3000 by default
     enum { PC_START = 0x3000 };
@@ -238,7 +327,7 @@ int main(int argc, char const *argv[])
                     uint16_t r0 = (instr >> 9) & 0x7;
                     // source register. 
                     uint16_t r1 = (instr >> 6) & 0x7;
-                    registers[r0] = ~registers[r1]; 
+                    registers[r0] = ~registers[r1];  // perform a bitwise NOT function (~)
                     updateFlgs(r0);
                 }
                 break;
@@ -249,7 +338,7 @@ int main(int argc, char const *argv[])
                     uint16_t condFlag = (instr >> 9) & 0x7;
                     if (condFlag & registers[R_COND])
                     {
-                        pcOffset += registers[R_PC];
+                        registers[R_PC] += pcOffset;
                     }
                 }
                 break;
@@ -327,8 +416,8 @@ int main(int argc, char const *argv[])
                 // Add this value to the current PC.
                 {
                     uint16_t r0 = (instr >> 9) & 0x7;
-                    uint16_t pcOffset9 = signExtend(instr & 0x1FF, 9);
-                    registers[r0] = pcOffset9 + registers[R_PC];
+                    uint16_t pcOffset = signExtend(instr & 0x1FF, 9);
+                    registers[r0] = registers[R_PC] + pcOffset;
                     updateFlgs(r0);
                 }
                 break;
@@ -339,7 +428,7 @@ int main(int argc, char const *argv[])
                     // source register.
                     uint16_t r0 = (instr >> 9) & 0x7;
                     uint16_t pcOffset = signExtend(instr & 0x1FF, 9);
-                    mem_write(pcOffset + registers[R_PC], registers[r0]);
+                    mem_write(registers[R_PC] + pcOffset, registers[r0]);
                 }
                 break;
             case OP_STI:
@@ -393,14 +482,16 @@ int main(int argc, char const *argv[])
                         }
                         break;
                     case TRAP_IN:
-                        // print a prompt.
-                        // read character from keyboard.
-                        // echo character.
-                        // store in R0.
-                        printf(" ");
-                        char c = getchar();
-                        putc(c, stdout);
-                        registers[R_R0] = (uint16_t)c; 
+                        {
+                            // print a prompt.
+                            // read character from keyboard.
+                            // echo character.
+                            // store in R0.
+                            printf(" ");
+                            char c = getchar();
+                            putc(c, stdout);
+                            registers[R_R0] = (uint16_t)c;
+                        } 
                         break;
                     case TRAP_PUTSP:
                         {
@@ -434,11 +525,12 @@ int main(int argc, char const *argv[])
             default:
                 // return an error
                 // BAD_OPCODE
+                abort();
                 break;
 
         }
     }
 
+    restore_input_buffering();
     return 0;
 }
-
